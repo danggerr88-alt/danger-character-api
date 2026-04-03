@@ -1,10 +1,9 @@
-from flask import Flask, redirect, jsonify
-import requests
+from flask import Flask, jsonify, send_file
 import os
 
 app = Flask(__name__)
 
-# Character ID to image mapping
+# Character ID to image filename mapping
 character_map = {
     "806": "102000008.png",    # Kla
     "306": "102000006.png",    # Ford
@@ -72,53 +71,149 @@ character_map = {
     "1906": "101000013.png",   # A124
     "7406": "102000052.png",   # Oscar
     "1206": "102000011.png",   # Wukong
-    "106": "101000005.png" ,    # Olivia
-    "7706": "102000055.png", #Morse
-    "7606": "102000054.png", #Nero
+    "106": "101000005.png",    # Olivia
+    "7706": "102000055.png",   # Morse
+    "7606": "102000054.png",   # Nero
 }
+
+# Character ID to display name
+character_names = {
+    "806": "Kla",
+    "306": "Ford",
+    "906": "Paloma",
+    "2406": "Notora",
+    "1003": "Miguel",
+    "2306": "Alvaro",
+    "6306": "Awaken Alvaro",
+    "7506": "Rin",
+    "1306": "Antonio",
+    "2006": "Joseph",
+    "2106": "Shani",
+    "2806": "Kapella",
+    "7206": "Koda",
+    "7006": "Kassie",
+    "6906": "Kairos",
+    "6806": "Ryden",
+    "6706": "Ignis",
+    "6606": "Suzy",
+    "6506": "Sonia",
+    "6206": "Orion",
+    "6006": "Santino",
+    "5306": "Luna",
+    "5806": "Tatsuya",
+    "5606": "Iris",
+    "5706": "J.Biebs's Microchip",
+    "5506": "Homer",
+    "5406": "Kenta",
+    "5206": "Nairi",
+    "5006": "Otho",
+    "4906": "Leon",
+    "4606": "Thiva",
+    "4706": "Dimitri",
+    "4506": "D-bee",
+    "4306": "Maro",
+    "4006": "Skyler",
+    "4406": "Xayne",
+    "4106": "Shirou",
+    "3806": "Chrono's Microchip",
+    "3506": "Dasha",
+    "3406": "K",
+    "2906": "Luqueta",
+    "206": "Kelly",
+    "1506": "Hayato Yagami",
+    "1406": "Moco",
+    "2606": "Steffie",
+    "606": "Misha",
+    "706": "Maxim",
+    "406": "Andrew",
+    "7106": "Lila",
+    "1106": "Caroline",
+    "1706": "Laura",
+    "1806": "Rafael",
+    "2206": "Alok",
+    "2706": "Jota",
+    "3106": "Clu",
+    "3006": "Wolfrahh",
+    "3306": "Jai's Microchip",
+    "4203": "Awaken Andrew",
+    "4806": "Awaken Moco",
+    "3203": "Awaken Hayato",
+    "2506": "Awaken Kelly",
+    "22016": "Awaken Alok",
+    "506": "Nikita",
+    "1906": "A124",
+    "7406": "Oscar",
+    "1206": "Wukong",
+    "106": "Olivia",
+    "7706": "Morse",
+    "7606": "Nero",
+}
+
+# Reverse mapping: PNG basename (e.g., "102000015") -> display name (e.g., "Alok")
+png_basename_to_display = {}
+for char_id, filename in character_map.items():
+    basename = filename[:-4]  # remove ".png"
+    if char_id in character_names:
+        png_basename_to_display[basename] = character_names[char_id]
+
+# Additional PNGs that are not in character_map (e.g., primis, nulla)
+extra_png_names = {
+    "102000004": "primis",
+    "101000004": "nulla",
+}
+png_basename_to_display.update(extra_png_names)
+
+# Directory where PNG images are stored
+PNG_DIR = os.path.join(os.path.dirname(__file__), "pngs")
 
 @app.route('/')
 def hello():
-    return jsonify({"message": "Character API is working! Use /api/<character-id>"})
+    return jsonify({"message": "Character API is working! Use /api/<id>"})
 
 @app.route('/api/<id>')
 def get_character_image(id):
-    try:
-        # Remove .bin extension if present
-        if id.endswith('.bin'):
-            id = id[:-4]  # Remove the last 4 characters (.bin)
-        
-        # Determine if it's a character ID (3-6 digits) or skill ID (8-11 digits)
-        if len(id) >= 3 and len(id) <= 6:
-            # Character ID
-            filename = character_map.get(id)
-        elif len(id) >= 8 and len(id) <= 11:
-            # Skill ID - use directly as filename with .png extension
-            filename = f"{id}.png"
-        else:
-            return jsonify({"error": "Invalid ID format"}), 404
-        
-        if not filename:
-            return jsonify({"error": "ID not found"}), 404
-        
-        # GitHub raw content URL
-        github_url = f"https://raw.githubusercontent.com/danggerr88-alt/danger-character-api/main/pngs/{filename}"
-        
-        # Check if the file exists on GitHub
-        response = requests.head(github_url, timeout=5)
-        
-        if response.status_code == 200:
-            # Redirect to the GitHub raw URL
-            return redirect(github_url, code=302)
-        else:
-            return jsonify({"error": f"File not found on GitHub. Status: {response.status_code}"}), 404
-            
-    except requests.exceptions.Timeout:
-        return jsonify({"error": "Request timeout"}), 504
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"Network error: {str(e)}"}), 500
-    except Exception as e:
-        return jsonify({"error": f"Internal server error: {str(e)}"}), 500
+    # Remove .bin extension if present
+    if id.endswith('.bin'):
+        id = id[:-4]
 
-# Vercel requires this to be named 'app' for serverless functions
+    filename = None
+    display_name = None
+
+    # Case 1: Character ID (like "806") directly in character_map
+    if id in character_map:
+        filename = character_map[id]
+        display_name = character_names.get(id, id)
+    # Case 2: PNG basename (like "102000015") found in reverse mapping
+    elif id in png_basename_to_display:
+        filename = f"{id}.png"
+        display_name = png_basename_to_display[id]
+    # Case 3: Skill ID (8-11 digits) - generic fallback
+    elif 8 <= len(id) <= 11:
+        filename = f"{id}.png"
+        display_name = f"Skill_{id}"
+    else:
+        return jsonify({"error": "Invalid ID format or ID not found"}), 404
+
+    image_path = os.path.join(PNG_DIR, filename)
+    if not os.path.exists(image_path):
+        return jsonify({"error": f"Image file not found: {filename}"}), 404
+
+    # Send file with friendly download name
+    try:
+        return send_file(
+            image_path,
+            mimetype='image/png',
+            as_attachment=False,
+            download_name=f"{display_name}.png"
+        )
+    except TypeError:
+        # Older Flask compatibility
+        return send_file(
+            image_path,
+            mimetype='image/png',
+            as_attachment=False,
+            attachment_filename=f"{display_name}.png"
+        )
+
+# Vercel ke liye
 app = app
