@@ -156,7 +156,7 @@ for char_id, filename in character_map.items():
     if char_id in character_names:
         png_basename_to_display[basename] = character_names[char_id]
 
-# Additional PNGs that are not in character_map (e.g., primis, nulla)
+# Extra PNGs like primis, nulla (no character ID)
 extra_png_names = {
     "102000004": "primis",
     "101000004": "nulla",
@@ -164,7 +164,7 @@ extra_png_names = {
 png_basename_to_display.update(extra_png_names)
 
 # Directory where PNG images are stored
-PNG_DIR = os.path.join(os.path.dirname(__file__), "pngs")
+PNG_DIR = os.path.join(os.path.dirname(__file__), "..", "pngs")  # because api/index.py -> project root/pngs
 
 @app.route('/')
 def hello():
@@ -215,5 +215,5 @@ def get_character_image(id):
             attachment_filename=f"{display_name}.png"
         )
 
-# Vercel ke liye
+# Vercel requires this
 app = app
