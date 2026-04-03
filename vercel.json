@@ -1,18 +1,14 @@
 {
-  "functions": {
-    "api/index.py": {
-      "runtime": "python3.9",
-      "includeFiles": "pngs/**"
+  "builds": [
+    {
+      "src": "api/index.py",
+      "use": "@vercel/python"
     }
-  },
+  ],
   "routes": [
     {
-      "src": "/api/(.*)",
-      "dest": "/api/index.py"
-    },
-    {
-      "src": "/image",
-      "dest": "/api/index.py"
+      "src": "/(.*)",
+      "dest": "api/index.py"
     }
   ]
 }
