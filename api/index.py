@@ -50,8 +50,9 @@ character_names = {
 
 # Extra PNGs (no character ID)
 extra_pngs = {
-    "102000004": "primis",
-    "101000004": "nulla",
+    "102000004": "Primis",
+    "101000004": "Nulla",
+    "102000056": "Ray"
 }
 # Add extra to character_names for listing and reverse mapping
 for png_base, name in extra_pngs.items():
