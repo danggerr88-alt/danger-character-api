@@ -1,9 +1,9 @@
-from flask import Flask, jsonify, send_file, request
+from flask import Flask, jsonify, request, Response
 import os
 
 app = Flask(__name__)
 
-# ---------- MAPPINGS (same as before) ----------
+# ---------- MAPPINGS ----------
 character_map = {
     "806": "102000008.png", "306": "102000006.png", "906": "101000009.png",
     "2406": "101000016.png", "1003": "102000009.png", "2306": "102000016.png",
@@ -48,25 +48,30 @@ character_names = {
     "7406": "Oscar", "1206": "Wukong", "106": "Olivia", "7706": "Morse", "7606": "Nero",
 }
 
-# Reverse mapping: PNG basename -> display name
-png_basename_to_display = {}
-for cid, fname in character_map.items():
-    base = fname[:-4]
-    if cid in character_names:
-        png_basename_to_display[base] = character_names[cid]
+# Extra PNGs (no character ID)
+extra_pngs = {
+    "102000004": "primis",
+    "101000004": "nulla",
+}
+# Add extra to character_names for listing and reverse mapping
+for png_base, name in extra_pngs.items():
+    character_names[png_base] = name  # treat PNG basename as "ID" for resolution
 
-# Extra PNGs without character ID (primis, nulla)
-extra_pngs = {"102000004": "primis", "101000004": "nulla"}
-png_basename_to_display.update(extra_pngs)
+# Reverse mapping: name (lowercase) -> ID (character ID or PNG basename)
+name_to_id = {}
+for cid, name in character_names.items():
+    name_to_id[name.lower()] = cid
 
+# Also add original character IDs themselves as name? No need.
+
+# PNG directory
 PNG_DIR = os.path.join(os.path.dirname(__file__), "..", "pngs")
 
-# ---------- HELPER FUNCTION ----------
 def resolve_id(raw_id):
-    """Clean ID, remove .bin, return (filename, display_name) or (None, None)"""
+    """Given ID (character ID or PNG basename), return (filename, display_name)"""
     if not raw_id:
         return None, None
-    # Remove .bin extension if present
+    # Remove .bin if present
     if raw_id.endswith('.bin'):
         raw_id = raw_id[:-4]
     
@@ -76,11 +81,15 @@ def resolve_id(raw_id):
         display = character_names.get(raw_id, raw_id)
         return filename, display
     
-    # Case 2: PNG basename (e.g., "102000004")
-    if raw_id in png_basename_to_display:
-        filename = f"{raw_id}.png"
-        display = png_basename_to_display[raw_id]
-        return filename, display
+    # Case 2: PNG basename (e.g., "102000004") - includes extra PNGs
+    if raw_id in extra_pngs or (raw_id in character_map.values()): 
+        # Actually character_map values are filenames, not basenames. We need basename without .png.
+        # Better: check if raw_id + ".png" exists? Let's just check if raw_id is a key in extra_pngs or matches any PNG basename from character_map
+        # Simpler: try to see if file exists directly
+        possible_filename = f"{raw_id}.png"
+        if os.path.exists(os.path.join(PNG_DIR, possible_filename)):
+            display = character_names.get(raw_id, f"Skill_{raw_id}")
+            return possible_filename, display
     
     # Case 3: Skill ID (8-11 digits)
     if 8 <= len(raw_id) <= 11:
@@ -90,63 +99,52 @@ def resolve_id(raw_id):
     
     return None, None
 
-# ---------- ROUTES ----------
-@app.route('/')
-def home():
-    return jsonify({
-        "message": "Character API works!",
-        "usage": {
-            "path": "/api/<id>",
-            "query": "/?char_id=<id>   or   /image?char_id=<id>"
-        }
-    })
-
-# Main endpoint: path parameter
-@app.route('/api/<id>')
-def get_by_path(id):
-    return serve_image(id)
-
-# New endpoint: query parameter (easy to use)
 @app.route('/image')
-def get_by_query():
+def get_image():
     char_id = request.args.get('char_id')
-    if not char_id:
-        return jsonify({"error": "Missing char_id parameter"}), 400
-    return serve_image(char_id)
-
-# Also support root with query param
-@app.route('/', methods=['GET'])
-def get_by_root_query():
-    char_id = request.args.get('char_id')
+    char_name = request.args.get('char_name')
+    
+    identifier = None
     if char_id:
-        return serve_image(char_id)
-    return home()  # no char_id, show info
-
-def serve_image(raw_id):
-    filename, display_name = resolve_id(raw_id)
+        identifier = char_id
+    elif char_name:
+        # Lookup name in name_to_id (case-insensitive)
+        identifier = name_to_id.get(char_name.lower())
+        if not identifier:
+            return jsonify({"error": f"Character name '{char_name}' not found"}), 404
+    else:
+        return jsonify({"error": "Missing 'char_id' or 'char_name' parameter"}), 400
+    
+    filename, display_name = resolve_id(identifier)
     if not filename:
-        return jsonify({"error": f"Invalid ID: {raw_id}"}), 404
+        return jsonify({"error": f"Invalid ID: {identifier}"}), 404
     
     image_path = os.path.join(PNG_DIR, filename)
     if not os.path.exists(image_path):
         return jsonify({"error": f"Image file not found: {filename}"}), 404
     
-    # Send file with proper download name (character name, not .bin)
-    try:
-        return send_file(
-            image_path,
-            mimetype='image/png',
-            as_attachment=False,
-            download_name=f"{display_name}.png"
-        )
-    except TypeError:
-        # For older Flask versions
-        return send_file(
-            image_path,
-            mimetype='image/png',
-            as_attachment=False,
-            attachment_filename=f"{display_name}.png"
-        )
+    with open(image_path, 'rb') as f:
+        image_data = f.read()
+    
+    response = Response(image_data, mimetype='image/png')
+    response.headers['Content-Disposition'] = f'inline; filename="{display_name}.png"'
+    return response
 
-# Vercel requirement
+@app.route('/list')
+def list_characters():
+    # Return sorted list of character names
+    names = sorted(character_names.values())
+    return jsonify({"characters": names})
+
+@app.route('/')
+def home():
+    return jsonify({
+        "message": "Character Image API",
+        "endpoints": {
+            "/image?char_id=<id>": "Get image by character ID (e.g., 806, 102000004)",
+            "/image?char_name=<name>": "Get image by character name (e.g., Alok, primis)",
+            "/list": "Get list of all character names"
+        }
+    })
+
 app = app
